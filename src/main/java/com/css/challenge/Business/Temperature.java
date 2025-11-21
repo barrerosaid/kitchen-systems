@@ -1,4 +1,4 @@
-package com.css.challenge.enums;
+package com.css.challenge.Business;
 
 public enum Temperature {
     HOT("hot"),
