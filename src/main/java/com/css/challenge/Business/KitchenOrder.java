@@ -51,6 +51,9 @@ public class KitchenOrder {
         return currentLocation;
     }
 
+    public void setCurrentLocation(Location currentLocation) {
+        this.currentLocation = currentLocation;
+    }
     /*
     An order not stored at ideal temperate degrades twice as quickly
      */
