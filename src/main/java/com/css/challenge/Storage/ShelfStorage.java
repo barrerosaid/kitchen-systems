@@ -2,11 +2,10 @@ package com.css.challenge.Storage;
 
 import com.css.challenge.Business.KitchenOrder;
 import com.css.challenge.Business.Location;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
-import java.util.ArrayList;
-import java.util.Collections;
-import java.util.List;
-import java.util.Optional;
+import java.util.*;
 
 /*
     Holds room temperature food
@@ -14,8 +13,21 @@ import java.util.Optional;
 public class ShelfStorage implements StorageRepository {
     private static final int CAPACITY = 12;
     private static final String NAME = "Shelf";
+    private static final Logger LOGGER = LoggerFactory.getLogger(ShelfStorage.class)
 
     private final List<KitchenOrder> orders = Collections.synchronizedList(new ArrayList<>());
+
+    private PriorityQueue<OrderItem> ordersByFreshness;
+
+    private Map<String, OrderItem> orderMap = Collections.synchronizedMap(new HashMap<>());
+
+    private class OrderItem{
+        KitchenOrder order;
+
+        OrderItem(KitchenOrder order){
+            this.order = order;
+        }
+    }
 
     @Override
     public boolean hasSpace(){
