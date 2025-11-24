@@ -5,6 +5,7 @@ import com.css.challenge.Business.Location;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import java.time.Instant;
 import java.util.*;
 
 /*
@@ -13,7 +14,7 @@ import java.util.*;
 public class ShelfStorage implements StorageRepository {
     private static final int CAPACITY = 12;
     private static final String NAME = "Shelf";
-    private static final Logger LOGGER = LoggerFactory.getLogger(ShelfStorage.class)
+    private static final Logger LOGGER = LoggerFactory.getLogger(ShelfStorage.class);
 
     private final List<KitchenOrder> orders = Collections.synchronizedList(new ArrayList<>());
 
@@ -21,12 +22,41 @@ public class ShelfStorage implements StorageRepository {
 
     private Map<String, OrderItem> orderMap = Collections.synchronizedMap(new HashMap<>());
 
-    private class OrderItem{
+    /**
+     * Used as Object for mapping the freshness to a KitchenOrder
+     */
+    private static class OrderItem{
         KitchenOrder order;
+        double cachedFreshness;
+        long lastOrderUpdateTime;
 
         OrderItem(KitchenOrder order){
             this.order = order;
+            this.cachedFreshness = 1.0;
+            this.lastOrderUpdateTime = System.currentTimeMillis();
         }
+
+        double getCurrentFreshnessRatio(){
+            long now = System.currentTimeMillis();
+            long age = now - lastOrderUpdateTime;
+
+            // older than 100ms which is the cache time so we will need to re-upade
+            if(age > 100){
+                cachedFreshness = order.getFreshnessRatio(Instant.now());
+                lastOrderUpdateTime = now;
+            }
+
+            return cachedFreshness;
+        }
+
+        @Override
+        public String toString(){
+            return String.format("OrderItem{id=%s, freshness=%.2f", order.getId(), getCurrentFreshnessRatio());
+        }
+    }
+
+    public ShelfStorage(){
+        ordersByFreshness = new PriorityQueue<>((a, b) -> Double.compare(a.getCurrentFreshnessRatio(), b.getCurrentFreshnessRatio()));
     }
 
     @Override
@@ -40,6 +70,7 @@ public class ShelfStorage implements StorageRepository {
             throw new IllegalStateException(
                     String.format("%s is full as capacity is: %d", NAME, CAPACITY));
         }
+
         orders.add(order);
         order.setCurrentLocation(Location.HEATER);
     }
