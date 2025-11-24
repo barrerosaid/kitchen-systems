@@ -18,7 +18,7 @@ public class ShelfStorage implements StorageRepository {
 
     private final List<KitchenOrder> orders = Collections.synchronizedList(new ArrayList<>());
 
-    private PriorityQueue<OrderItem> ordersByFreshness;
+    private PriorityQueue<OrderItem> ordersByFreshnessQueue;
 
     private Map<String, OrderItem> orderMap = Collections.synchronizedMap(new HashMap<>());
 
@@ -56,12 +56,12 @@ public class ShelfStorage implements StorageRepository {
     }
 
     public ShelfStorage(){
-        ordersByFreshness = new PriorityQueue<>((a, b) -> Double.compare(a.getCurrentFreshnessRatio(), b.getCurrentFreshnessRatio()));
+        ordersByFreshnessQueue = new PriorityQueue<>((a, b) -> Double.compare(a.getCurrentFreshnessRatio(), b.getCurrentFreshnessRatio()));
     }
 
     @Override
     public boolean hasSpace(){
-        return orders.size() < CAPACITY;
+        return orderMap.size() < CAPACITY;
     }
 
     @Override
@@ -71,28 +71,53 @@ public class ShelfStorage implements StorageRepository {
                     String.format("%s is full as capacity is: %d", NAME, CAPACITY));
         }
 
-        orders.add(order);
-        order.setCurrentLocation(Location.HEATER);
+        OrderItem item = new OrderItem(order);
+        orderMap.put(order.getId(), item);
+        ordersByFreshnessQueue.offer(item);
+        //orders.add(order);
+        order.setCurrentLocation(Location.SHELF);
+
+        LOGGER.debug("Added {} to shelf (count on shelf: {} / {})", order.getId(), orderMap.size(), CAPACITY);
     }
 
     @Override
     public boolean remove(String orderId){
-        return orders.removeIf(order -> order.getId().equals(orderId));
+        OrderItem item = orderMap.remove(orderId);
+        if(item != null){
+            ordersByFreshnessQueue.remove(item);
+            LOGGER.debug("Removed {} from shelf (count: {}/{})", orderId, orderMap.size(), CAPACITY);
+            return true;
+        }
+        return false;
+        //return orders.removeIf(order -> order.getId().equals(orderId));
     }
 
     @Override
     public Optional<KitchenOrder> findById(String orderId){
-        return orders.stream().filter(order -> order.getId().equals(orderId)).findFirst();
+        OrderItem item = orderMap.get(orderId);
+        if(item == null){
+            return Optional.empty();
+        }
+
+        return Optional.of(item.order);
+
+        //return orders.stream().filter(order -> order.getId().equals(orderId)).findFirst();
     }
 
     @Override
     public List<KitchenOrder> getAllOrders(){
-        return Collections.unmodifiableList(new ArrayList<>(orders));
+        return Collections.unmodifiableList(
+                orderMap.values().stream()
+                        .map(e -> e.order)
+                        .toList()
+        );
+
+        //return Collections.unmodifiableList(new ArrayList<>(orders));
     }
 
     @Override
     public int getCurrentCount(){
-        return orders.size();
+        return orderMap.size();
     }
 
     @Override
@@ -105,6 +130,18 @@ public class ShelfStorage implements StorageRepository {
         return NAME;
     }
 
+    //Select item that is the least fresh in the queue
+    public Optional<KitchenOrder> findLeastFreshOrder(){
+        OrderItem worstItem = ordersByFreshnessQueue.peek();
+
+        if(worstItem == null){
+            return Optional.empty();
+        }
+
+        return Optional.of(worstItem.order);
+    }
+
+    // FIFO
     public Optional<KitchenOrder> getOldestOrder(){
         return orders.isEmpty() ? Optional.empty() : Optional.of(orders.getFirst());
     }

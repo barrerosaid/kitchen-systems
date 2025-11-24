@@ -12,8 +12,9 @@ import java.util.Optional;
 public class FreshnessDiscardStrategy implements DiscardStrategy
 {
     private static final Logger LOGGER = LoggerFactory.getLogger(FreshnessDiscardStrategy.class);
-    private final String strategyName = "Freshness";
+    private static final String strategyName = "Freshness";
 
+    // We are checking the selected storage on freshness
     public Optional<KitchenOrder> selectDiscardCandidate(StorageRepository shelf){
         Instant now = Instant.now();
         List<KitchenOrder> allOrders = shelf.getAllOrders();

@@ -7,6 +7,8 @@ import com.css.challenge.Storage.CoolerStorage;
 import com.css.challenge.Storage.HeaterStorage;
 import com.css.challenge.Storage.ShelfStorage;
 import com.css.challenge.Storage.StorageRepository;
+import com.css.challenge.Strategies.DiscardStrategy;
+import com.css.challenge.Strategies.FreshnessDiscardStrategy;
 import com.css.challenge.client.Action;
 import com.css.challenge.client.Order;
 import org.slf4j.Logger;
@@ -39,15 +41,29 @@ public class Kitchen {
     private int totalDiscaredExpiredOrders = 0;
     private int totalDiscaredOverflowOrder = 0;
 
+    // Choose how we discard item/orders
+    DiscardStrategy discardStrategy;
+
+    public Kitchen(){
+        this(new FreshnessDiscardStrategy());
+    }
+
+    public Kitchen(DiscardStrategy discardStrategy){
+        this.discardStrategy = discardStrategy;
+        LOGGER.info("Kitchen will use {} discard strategy for order", discardStrategy.getName());
+    }
+
     public void placeOrder(KitchenOrder order){
         LOGGER.info("Placing order {} temp: {}", order.getId(), order.getTemperature());
 
+        // If it is a hot or cold order, check their storage areas
         if(canPlaceInIdealStorage(order)){
             recordActionTaken(Instant.now(), order, Action.PLACE, getLocation(order));
             totalOrdersPlaced++;
             return;
         }
 
+        //Otherwise check the shelf for orders
         if(shelf.hasSpace()){
             shelf.add(order);
             recordActionTaken(Instant.now(), order, Action.PLACE, Location.SHELF.getValue());
@@ -56,6 +72,7 @@ public class Kitchen {
             return;
         }
 
+        //If we can move from the shelf to hot/cold storage based on changes in the kitchen storage
         if(canRelocateFromShelf()){
             shelf.add(order);
             recordActionTaken(Instant.now(), order, Action.PLACE, Location.SHELF.getValue());
@@ -64,7 +81,8 @@ public class Kitchen {
             return;
         }
 
-        Optional<KitchenOrder> discardedOrder = selectDiscardCandidate();
+        // check for discarding any items based on the strategy selected (ex: freshness ratio)
+        Optional<KitchenOrder> discardedOrder = discardStrategy.selectDiscardCandidate(shelf);
 
         if(discardedOrder.isPresent()){
             shelf.remove(discardedOrder.get().getId());
