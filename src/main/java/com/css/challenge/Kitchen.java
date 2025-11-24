@@ -19,6 +19,8 @@ import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
 import java.util.Optional;
+import java.util.concurrent.locks.ReadWriteLock;
+import java.util.concurrent.locks.ReentrantReadWriteLock;
 
 /*
     Handles all orders and their location for food and where they are tracked
@@ -44,6 +46,9 @@ public class Kitchen {
     // Choose how we discard item/orders
     DiscardStrategy discardStrategy;
 
+    // used for dealing with threads and locking critical areas
+    private final ReadWriteLock lock = new ReentrantReadWriteLock();
+
     public Kitchen(){
         this(new FreshnessDiscardStrategy());
     }
@@ -54,80 +59,101 @@ public class Kitchen {
     }
 
     public void placeOrder(KitchenOrder order){
-        LOGGER.info("Placing order {} temp: {}", order.getId(), order.getTemperature());
+        lock.writeLock().lock();
+        try {
+            LOGGER.info("Placing order {} temp: {}", order.getId(), order.getTemperature());
 
-        // If it is a hot or cold order, check their storage areas
-        if(canPlaceInIdealStorage(order)){
-            recordActionTaken(Instant.now(), order, Action.PLACE, getLocation(order));
-            totalOrdersPlaced++;
-            return;
-        }
+            // If it is a hot or cold order, check their storage areas
+            if (canPlaceInIdealStorage(order)) {
+                recordActionTaken(Instant.now(), order, Action.PLACE, getLocation(order));
+                totalOrdersPlaced++;
+                return;
+            }
 
-        //Otherwise check the shelf for orders
-        if(shelf.hasSpace()){
+            //Otherwise check the shelf for orders
+            if (shelf.hasSpace()) {
+                shelf.add(order);
+                recordActionTaken(Instant.now(), order, Action.PLACE, Location.SHELF.getValue());
+                totalOrdersPlaced++;
+                LOGGER.info("Placed {} on shelf (no space in ideal storage)", order.getId());
+                return;
+            }
+
+            //If we can move from the shelf to hot/cold storage based on changes in the kitchen storage
+            if (canRelocateFromShelf()) {
+                shelf.add(order);
+                recordActionTaken(Instant.now(), order, Action.PLACE, Location.SHELF.getValue());
+                LOGGER.info("Placed {} on shelf (after relocating)", order.getId());
+                totalOrdersPlaced++;
+                return;
+            }
+
+            // check for discarding any items based on the strategy selected (ex: freshness ratio)
+            Optional<KitchenOrder> discardedOrder = discardStrategy.selectDiscardCandidate(shelf);
+
+            if (discardedOrder.isPresent()) {
+                shelf.remove(discardedOrder.get().getId());
+                recordActionTaken(Instant.now(), discardedOrder.get(), Action.DISCARD, discardedOrder.get().getCurrentLocation().getValue(), "Overflow and discarded for new order");
+                totalDiscaredOverflowOrder++;
+                LOGGER.warn("Discarded {} to make room for {}", discardedOrder.get().getId(), order.getId());
+            }
+
             shelf.add(order);
             recordActionTaken(Instant.now(), order, Action.PLACE, Location.SHELF.getValue());
             totalOrdersPlaced++;
-            LOGGER.info("Placed {} on shelf (no space in ideal storage)", order.getId());
-            return;
+        } finally {
+            lock.writeLock().unlock();
         }
-
-        //If we can move from the shelf to hot/cold storage based on changes in the kitchen storage
-        if(canRelocateFromShelf()){
-            shelf.add(order);
-            recordActionTaken(Instant.now(), order, Action.PLACE, Location.SHELF.getValue());
-            LOGGER.info("Placed {} on shelf (after relocating)", order.getId());
-            totalOrdersPlaced++;
-            return;
-        }
-
-        // check for discarding any items based on the strategy selected (ex: freshness ratio)
-        Optional<KitchenOrder> discardedOrder = discardStrategy.selectDiscardCandidate(shelf);
-
-        if(discardedOrder.isPresent()){
-            shelf.remove(discardedOrder.get().getId());
-            recordActionTaken(Instant.now(), discardedOrder.get(), Action.DISCARD, discardedOrder.get().getCurrentLocation().getValue(), "Overflow and discarded for new order" );
-            totalDiscaredOverflowOrder++;
-            LOGGER.warn("Discarded {} to make room for {}", discardedOrder.get().getId(), order.getId());
-        }
-
-        shelf.add(order);
-        recordActionTaken(Instant.now(), order, Action.PLACE, Location.SHELF.getValue());
-        totalOrdersPlaced++;
     }
 
     public Optional<KitchenOrder> pickupOrder(String orderId){
-        Optional<KitchenOrder> order = findOrderInStorage(orderId);
+        lock.writeLock().lock();
+        try {
+            Optional<KitchenOrder> order = findOrderInStorage(orderId);
 
-        if(order.isEmpty()){
-            LOGGER.warn("Pickup attempted: order {} not found", orderId);
-            return Optional.empty();
-        }
+            if (order.isEmpty()) {
+                LOGGER.warn("Pickup attempted: order {} not found", orderId);
+                return Optional.empty();
+            }
 
-        KitchenOrder pickedUpOrder = order.get();
-        Instant now = Instant.now();
+            KitchenOrder pickedUpOrder = order.get();
+            Instant now = Instant.now();
 
-        if(pickedUpOrder.hasExpired(now)){
-            Location currentLocation = pickedUpOrder.getCurrentLocation();
+            if (pickedUpOrder.hasExpired(now)) {
+                Location currentLocation = pickedUpOrder.getCurrentLocation();
+                removeFromStorage(pickedUpOrder);
+                recordActionTaken(now, pickedUpOrder, Action.PICKUP, currentLocation.getValue(), String.format("Expired (%.1f seconds remaining)", pickedUpOrder.getRemainingFreshness(now)));
+                totalDiscaredExpiredOrders++;
+                LOGGER.warn("Pickup failed: order {} expired", orderId);
+                return Optional.empty();
+            }
+
+            Location location = pickedUpOrder.getCurrentLocation();
             removeFromStorage(pickedUpOrder);
-            recordActionTaken(now, pickedUpOrder, Action.PICKUP, currentLocation.getValue(), String.format("Expired (%.1f seconds remaining)", pickedUpOrder.getRemainingFreshness(now)));
-            totalDiscaredExpiredOrders++;
-            LOGGER.warn("Pickup failed: order {} expired", orderId);
-            return Optional.empty();
+            recordActionTaken(now, pickedUpOrder, Action.PICKUP, location.getValue());
+            totalOrdersPickedUp++;
+            LOGGER.info("Picked up Order {} from {}", orderId, location);
+            return Optional.of(pickedUpOrder);
+        } finally {
+            lock.writeLock().unlock();
         }
-
-        Location location = pickedUpOrder.getCurrentLocation();
-        removeFromStorage(pickedUpOrder);
-        recordActionTaken(now, pickedUpOrder, Action.PICKUP, location.getValue());
-        totalOrdersPickedUp++;
-        LOGGER.info("Picked up Order {} from {}", orderId, location);
-        return Optional.of(pickedUpOrder);
     }
 
     public List<Action> getActions(){
-        return new ArrayList<>(actions);
+        lock.readLock().lock();
+        try {
+            return new ArrayList<>(actions);
+        } finally {
+            lock.readLock().lock();
+        }
     }
 
+    /**
+     * Place in ideal storage location within lock
+     *
+     * @param order being placed
+     * @return true if successfully placed item
+     */
     private boolean canPlaceInIdealStorage(KitchenOrder order){
         StorageRepository ideal = getIdealStorage(order);
 
@@ -141,6 +167,11 @@ public class Kitchen {
 
     }
 
+    /**
+     * Relocate to existing shelf within lock
+     *
+     * @return true if relocated, false if no space
+     */
     private boolean canRelocateFromShelf(){
         if(cooler.hasSpace()){
             //get cool orders to move to cooler
@@ -248,8 +279,4 @@ public class Kitchen {
             LOGGER.info("[{}] {} {} {}", timestamp, action.toUpperCase(), order.getId(), target);
         }
     }
-
-
-
-
 }
