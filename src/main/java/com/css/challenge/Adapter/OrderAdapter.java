@@ -17,7 +17,7 @@ public class OrderAdapter {
         return KitchenOrder.builder()
                 .id(clientOrder.getId())
                 .name(clientOrder.getName())
-                .temperature(Temperature.valueOf(clientOrder.getTemp()))
+                .temperature(Temperature.fromString(clientOrder.getTemp()))
                 .price(BigDecimal.valueOf(clientOrder.getPrice()))
                 .freshness(Duration.ofSeconds(clientOrder.getFreshness()))
                 .createdAt(Instant.now())

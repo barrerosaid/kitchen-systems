@@ -68,7 +68,7 @@ public class Main implements Runnable {
               .map(OrderAdapter::toDomain)
               .collect(Collectors.toList());
 
-      LOGGER.info("Convert {} scaffold code orders to kitcehn orders", orders.size());
+      LOGGER.info("Convert {} scaffold code orders to kitchen orders", orders.size());
 
       // ------ Execution harness logic goes here using rate, min and max ----
 
