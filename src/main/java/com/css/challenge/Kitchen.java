@@ -11,14 +11,12 @@ import com.css.challenge.Strategies.DiscardStrategy;
 import com.css.challenge.Strategies.FreshnessDiscardStrategy;
 import com.css.challenge.client.Action;
 import com.css.challenge.client.Order;
+import org.apache.commons.logging.Log;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.time.Instant;
-import java.util.ArrayList;
-import java.util.Comparator;
-import java.util.List;
-import java.util.Optional;
+import java.util.*;
 import java.util.concurrent.locks.ReadWriteLock;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
 
@@ -46,6 +44,8 @@ public class Kitchen {
     // Choose how we discard item/orders
     DiscardStrategy discardStrategy;
 
+    private Set<String> discardedOrderIds = new HashSet<>();
+
     // used for dealing with threads and locking critical areas
     private final ReadWriteLock lock = new ReentrantReadWriteLock();
 
@@ -61,11 +61,12 @@ public class Kitchen {
     public void placeOrder(KitchenOrder order){
         lock.writeLock().lock();
         try {
+            Instant timestamp = Instant.now();
             LOGGER.info("Placing order {} temp: {}", order.getId(), order.getTemperature());
 
             // If it is a hot or cold order, check their storage areas
-            if (canPlaceInIdealStorage(order)) {
-                recordActionTaken(Instant.now(), order, Action.PLACE, getLocation(order));
+            if (canPlaceInIdealStorage(order, timestamp)) {
+                recordActionTaken(timestamp, order, Action.PLACE, getLocation(order));
                 totalOrdersPlaced++;
                 return;
             }
@@ -73,16 +74,16 @@ public class Kitchen {
             //Otherwise check the shelf for orders
             if (shelf.hasSpace()) {
                 shelf.add(order);
-                recordActionTaken(Instant.now(), order, Action.PLACE, Location.SHELF.getValue());
+                recordActionTaken(timestamp, order, Action.PLACE, Location.SHELF.getValue());
                 totalOrdersPlaced++;
                 LOGGER.info("Placed {} on shelf (no space in ideal storage)", order.getId());
                 return;
             }
 
             //If we can move from the shelf to hot/cold storage based on changes in the kitchen storage
-            if (canRelocateFromShelf()) {
+            if (canRelocateFromShelf(timestamp)) {
                 shelf.add(order);
-                recordActionTaken(Instant.now(), order, Action.PLACE, Location.SHELF.getValue());
+                recordActionTaken(timestamp, order, Action.PLACE, Location.SHELF.getValue());
                 LOGGER.info("Placed {} on shelf (after relocating)", order.getId());
                 totalOrdersPlaced++;
                 return;
@@ -93,13 +94,16 @@ public class Kitchen {
 
             if (discardedOrder.isPresent()) {
                 shelf.remove(discardedOrder.get().getId());
-                recordActionTaken(Instant.now(), discardedOrder.get(), Action.DISCARD, discardedOrder.get().getCurrentLocation().getValue(), "Overflow and discarded for new order");
+
+                discardedOrderIds.add(discardedOrder.get().getId());
+
+                recordActionTaken(timestamp, discardedOrder.get(), Action.DISCARD, discardedOrder.get().getCurrentLocation().getValue(), "Overflow and discarded for new order");
                 totalDiscaredOverflowOrder++;
                 LOGGER.warn("Discarded {} to make room for {}", discardedOrder.get().getId(), order.getId());
             }
 
             shelf.add(order);
-            recordActionTaken(Instant.now(), order, Action.PLACE, Location.SHELF.getValue());
+            recordActionTaken(timestamp, order, Action.PLACE, Location.SHELF.getValue());
             totalOrdersPlaced++;
         } finally {
             lock.writeLock().unlock();
@@ -109,6 +113,13 @@ public class Kitchen {
     public Optional<KitchenOrder> pickupOrder(String orderId){
         lock.writeLock().lock();
         try {
+            Instant now = Instant.now();
+
+            if(discardedOrderIds.contains(orderId)){
+                LOGGER.debug("Pickup skipped: order {} was discarded", orderId);
+                return Optional.empty();
+            }
+
             Optional<KitchenOrder> order = findOrderInStorage(orderId);
 
             if (order.isEmpty()) {
@@ -117,12 +128,14 @@ public class Kitchen {
             }
 
             KitchenOrder pickedUpOrder = order.get();
-            Instant now = Instant.now();
 
             if (pickedUpOrder.hasExpired(now)) {
                 Location currentLocation = pickedUpOrder.getCurrentLocation();
                 removeFromStorage(pickedUpOrder);
-                recordActionTaken(now, pickedUpOrder, Action.PICKUP, currentLocation.getValue(), String.format("Expired (%.1f seconds remaining)", pickedUpOrder.getRemainingFreshness(now)));
+
+                discardedOrderIds.add(orderId);
+
+                //recordActionTaken(now, pickedUpOrder, Action.PICKUP, currentLocation.getValue(), String.format("Expired (%.1f seconds remaining)", pickedUpOrder.getRemainingFreshness(now)));
                 totalDiscaredExpiredOrders++;
                 LOGGER.warn("Pickup failed: order {} expired", orderId);
                 return Optional.empty();
@@ -144,7 +157,7 @@ public class Kitchen {
         try {
             return new ArrayList<>(actions);
         } finally {
-            lock.readLock().lock();
+            lock.readLock().unlock();
         }
     }
 
@@ -154,7 +167,7 @@ public class Kitchen {
      * @param order being placed
      * @return true if successfully placed item
      */
-    private boolean canPlaceInIdealStorage(KitchenOrder order){
+    private boolean canPlaceInIdealStorage(KitchenOrder order, Instant timestamp){
         StorageRepository ideal = getIdealStorage(order);
 
         if(ideal.hasSpace()){
@@ -172,7 +185,7 @@ public class Kitchen {
      *
      * @return true if relocated, false if no space
      */
-    private boolean canRelocateFromShelf(){
+    private boolean canRelocateFromShelf(Instant timestamp){
         if(cooler.hasSpace()){
             //get cool orders to move to cooler
             Optional<KitchenOrder> coldItemToMove =
@@ -185,7 +198,7 @@ public class Kitchen {
                 shelf.remove(order.getId());
                 cooler.add(order);
 
-                recordActionTaken(Instant.now(), order, Action.MOVE, Location.COOLER.getValue(), "Relocated from shelf to ideal location" );
+                recordActionTaken(timestamp, order, Action.MOVE, Location.COOLER.getValue(), "Relocated from shelf to ideal location" );
                 LOGGER.info("Relocated {} from shelf to cooler", order.getId());
                 return true;
             }
@@ -201,7 +214,7 @@ public class Kitchen {
                 KitchenOrder order = hotItemToMove.get();
                 shelf.remove(order.getId());
                 heater.add(order);
-                recordActionTaken(Instant.now(), order, Action.MOVE, Location.HEATER.getValue(), "Relocated from shelf to ideal location" );
+                recordActionTaken(timestamp, order, Action.MOVE, Location.HEATER.getValue(), "Relocated from shelf to ideal location" );
                 LOGGER.info("Relocated {} from shelf to heater", order.getId());
                 return true;
             }
@@ -227,6 +240,20 @@ public class Kitchen {
             // if the same freshness ratio (both going to expire at the same rate) so compare price
             return o1.getPrice().compareTo(o2.getPrice());
         });
+    }
+
+    /**
+     * Mark which orders are discarded (expired or due to overflow)
+     * @param orderId
+     * @return
+     */
+    public boolean isOrderDiscarded(String orderId){
+        lock.readLock().lock();
+        try{
+            return discardedOrderIds.contains(orderId);
+        } finally {
+            lock.readLock().unlock();
+        }
     }
 
     private StorageRepository getIdealStorage(KitchenOrder order){

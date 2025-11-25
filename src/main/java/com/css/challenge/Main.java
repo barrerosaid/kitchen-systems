@@ -74,27 +74,19 @@ public class Main implements Runnable {
       SimpleHarness harness = new SimpleHarness(kitchen, rate, min, max);
       LOGGER.info("Running simulation with rate={}ms and pickup between={}-{}", rate.toMillis(), min.toSeconds(), max.toSeconds());
 
-//      var harnessResults = harness.run();
-//      List<Action> actions = harnessResults.getActions();
+      var harnessResults = harness.run(orders);
+      List<Action> actions = harnessResults.getActions();
 
       // ------ Execution harness logic goes here using rate, min and max ----
-
-      List<Action> actions = new ArrayList<>();
-      for (Order order : problem.getOrders()) {
-        LOGGER.info("Received: {}", order);
-
-        actions.add(new Action(Instant.now(), order.getId(), Action.PLACE, Action.COOLER));
-        Thread.sleep(rate.toMillis());
-      }
-
       // ----------------------------------------------------------------------
 
       LOGGER.info("Submitting {} actions to server: ", actions.size());
       String result = client.solveProblem(problem.getTestId(), rate, min, max, actions);
-      LOGGER.info("Result: {}", result);
+      LOGGER.info("Server Result: {}", result);
 
-    } catch (IOException | InterruptedException e) {
+    } catch (IOException e) {
       LOGGER.error("Simulation failed: {}", e.getMessage());
+      System.exit(1);
     }
   }
 

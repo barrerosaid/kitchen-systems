@@ -7,6 +7,7 @@ import com.fasterxml.jackson.annotation.JsonProperty;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import java.sql.Time;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
@@ -54,7 +55,8 @@ public class SimpleHarness {
      * @param orders that represents list of orders to process
      * @return HarnessResult
      */
-    public SimpleHarnessResult run(List<KitchenOrder> orders){
+    public SimpleHarnessResult run(List<KitchenOrder> orders)
+    {
         LOGGER.info("Starting simulation with {} orders", orders.size());
         long startTime = System.currentTimeMillis();
 
@@ -88,6 +90,19 @@ public class SimpleHarness {
                 }
             });
 
+            try {
+                long placementTimeout = placementRate.toMillis() * orders.size() + 5000;
+                boolean placementsOk = orderPlacementComplete.await(placementTimeout, TimeUnit.MILLISECONDS);
+
+                if (!placementsOk) {
+                    LOGGER.error("Placements are taking too long");
+                }
+            } catch(InterruptedException ex){
+                LOGGER.error("Harness interrupted during placement", ex);
+                Thread.currentThread().interrupt();
+            }
+
+            //Consumers
             for(String orderId: orderIds){
                 long pickupDaysMillis = findRandomPickupDelay();
 
@@ -108,8 +123,25 @@ public class SimpleHarness {
                         TimeUnit.MILLISECONDS
                 );
             }
+
+            try {
+                long pickupTimeout = pickupMaxDelay.toMillis() + 5000;
+                boolean pickupsOk = orderPickupsComplete.await(pickupTimeout, TimeUnit.MILLISECONDS);
+
+                if (!pickupsOk) {
+                    LOGGER.error("Pickups took too long");
+                }
+            }catch(InterruptedException ex){
+                LOGGER.error("Harness interrupted during pickup", ex);
+                Thread.currentThread().interrupt();
+            }
+
             long endTime = System.currentTimeMillis();
             List<Action> actions = kitchen.getActions();
+
+            actions.sort((a,b)-> Long.compare(a.getTimestamp(), b.getTimestamp()));
+            LOGGER.info("Completed in {}ms with {} actions", endTime-startTime, actions.size());
+
             return new SimpleHarnessResult(kitchen, actions, startTime, endTime);
         } finally{
             executorService.shutdown();
