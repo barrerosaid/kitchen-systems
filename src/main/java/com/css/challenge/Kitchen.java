@@ -89,6 +89,7 @@ public class Kitchen {
                 return;
             }
 
+            /*
             // check for discarding any items based on the strategy selected (ex: freshness ratio)
             Optional<KitchenOrder> discardedOrder = discardStrategy.selectDiscardCandidate(shelf);
 
@@ -105,6 +106,44 @@ public class Kitchen {
             shelf.add(order);
             recordActionTaken(timestamp, order, Action.PLACE, Location.SHELF.getValue());
             totalOrdersPlaced++;
+             */
+            LOGGER.warn("Cannot place order {} - no storage space", order.getId());
+        } finally {
+            lock.writeLock().unlock();
+        }
+    }
+
+    public void placeOrderWithTimestamp(KitchenOrder order){
+        lock.writeLock().lock();
+        try {
+            // Use the order's creation time, not current time
+            Instant timestamp = order.getCreatedAt();
+            LOGGER.info("Placing order {} temp: {}", order.getId(), order.getTemperature());
+
+            if (canPlaceInIdealStorage(order, timestamp)) {
+                recordActionTaken(timestamp, order, Action.PLACE, getLocation(order));
+                totalOrdersPlaced++;
+                return;
+            }
+
+            if (shelf.hasSpace()) {
+                shelf.add(order);
+                recordActionTaken(timestamp, order, Action.PLACE, Location.SHELF.getValue());
+                totalOrdersPlaced++;
+                LOGGER.info("Placed {} on shelf (no space in ideal storage)", order.getId());
+                return;
+            }
+
+            if (canRelocateFromShelf(timestamp)) {
+                shelf.add(order);
+                recordActionTaken(timestamp, order, Action.PLACE, Location.SHELF.getValue());
+                LOGGER.info("Placed {} on shelf (after relocating)", order.getId());
+                totalOrdersPlaced++;
+                return;
+            }
+
+            LOGGER.warn("Cannot place order {} - no available storage space", order.getId());
+
         } finally {
             lock.writeLock().unlock();
         }

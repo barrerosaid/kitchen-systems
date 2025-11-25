@@ -55,34 +55,28 @@ public class SimpleHarness {
      * @param orders that represents list of orders to process
      * @return HarnessResult
      */
-    public SimpleHarnessResult run(List<KitchenOrder> orders)
-    {
+    public SimpleHarnessResult run(List<KitchenOrder> orders) {
         LOGGER.info("Starting simulation with {} orders", orders.size());
         long startTime = System.currentTimeMillis();
 
         List<String> orderIds = new ArrayList<>();
-        // must be invoked once
         CountDownLatch orderPlacementComplete = new CountDownLatch(1);
         CountDownLatch orderPickupsComplete = new CountDownLatch(orders.size());
 
-        // There are 1 Producer and 4 Consumers based on order list size
-        ScheduledExecutorService executorService = Executors.newScheduledThreadPool(1 + Math.min(4, orders.size()));
+        ScheduledExecutorService executorService = Executors.newScheduledThreadPool(
+                1 + Math.min(4, orders.size())
+        );
 
-        try{
-            //Producers
+        try {
+            // Producer: Place orders immediately (don't wait for their creation times)
             executorService.submit(() -> {
-                try{
-                    for(KitchenOrder order: orders){
-                        kitchen.placeOrder(order);
+                try {
+                    for (KitchenOrder order : orders) {
+                        kitchen.placeOrderWithTimestamp(order);
                         orderIds.add(order.getId());
-
-                        // wait before next order based on placement rate
-                        if(orders.indexOf(order) < orders.size()-1){
-                            Thread.sleep(placementRate.toMillis());
-                        }
                     }
                     LOGGER.info("Added all orders from kitchen");
-                } catch(InterruptedException ex) {
+                } catch (Exception ex) {
                     LOGGER.error("Placement interrupted exception", ex);
                     Thread.currentThread().interrupt();
                 } finally {
@@ -90,40 +84,48 @@ public class SimpleHarness {
                 }
             });
 
+            // Wait for placement to complete FIRST
             try {
-                long placementTimeout = placementRate.toMillis() * orders.size() + 5000;
+                long placementTimeout = 10000; // 10 seconds should be plenty
                 boolean placementsOk = orderPlacementComplete.await(placementTimeout, TimeUnit.MILLISECONDS);
 
                 if (!placementsOk) {
-                    LOGGER.error("Placements are taking too long");
+                    LOGGER.error("Placements took too long");
                 }
-            } catch(InterruptedException ex){
+            } catch (InterruptedException ex) {
                 LOGGER.error("Harness interrupted during placement", ex);
                 Thread.currentThread().interrupt();
             }
 
-            //Consumers
-            for(String orderId: orderIds){
-                long pickupDaysMillis = findRandomPickupDelay();
+            // NOW schedule pickups (orderIds is populated)
+            for (String orderId : orderIds) {
+                // Skip orders that were discarded during placement
+                if (kitchen.isOrderDiscarded(orderId)) {
+                    orderPickupsComplete.countDown();
+                    continue;
+                }
+
+                long pickupDelayMillis = findRandomPickupDelay();
 
                 executorService.schedule(
                         () -> {
-                            try{
+                            try {
                                 var orderToPickUp = kitchen.pickupOrder(orderId);
-                                if(orderToPickUp.isPresent()){
+                                if (orderToPickUp.isPresent()) {
                                     LOGGER.debug("Picked up order {}", orderId);
-                                } else{
+                                } else {
                                     LOGGER.debug("Unable to pick up order {}", orderId);
                                 }
                             } finally {
                                 orderPickupsComplete.countDown();
                             }
                         },
-                        pickupDaysMillis,
+                        pickupDelayMillis,
                         TimeUnit.MILLISECONDS
                 );
             }
 
+            // Wait for all pickups to complete
             try {
                 long pickupTimeout = pickupMaxDelay.toMillis() + 5000;
                 boolean pickupsOk = orderPickupsComplete.await(pickupTimeout, TimeUnit.MILLISECONDS);
@@ -131,25 +133,28 @@ public class SimpleHarness {
                 if (!pickupsOk) {
                     LOGGER.error("Pickups took too long");
                 }
-            }catch(InterruptedException ex){
-                LOGGER.error("Harness interrupted during pickup", ex);
+            } catch (InterruptedException ex) {
+                LOGGER.error("Harness interrupted during pickups", ex);
                 Thread.currentThread().interrupt();
             }
 
             long endTime = System.currentTimeMillis();
             List<Action> actions = kitchen.getActions();
 
-            actions.sort((a,b)-> Long.compare(a.getTimestamp(), b.getTimestamp()));
-            LOGGER.info("Completed in {}ms with {} actions", endTime-startTime, actions.size());
+            // Sort actions by timestamp
+            actions.sort((a, b) -> Long.compare(a.getTimestamp(), b.getTimestamp()));
+
+            LOGGER.info("Completed in {}ms with {} actions", endTime - startTime, actions.size());
 
             return new SimpleHarnessResult(kitchen, actions, startTime, endTime);
-        } finally{
+
+        } finally {
             executorService.shutdown();
-            try{
-                if(!executorService.awaitTermination(5, TimeUnit.SECONDS)){
+            try {
+                if (!executorService.awaitTermination(5, TimeUnit.SECONDS)) {
                     executorService.shutdownNow();
                 }
-            } catch(InterruptedException ex){
+            } catch (InterruptedException ex) {
                 executorService.shutdownNow();
                 Thread.currentThread().interrupt();
             }
