@@ -2,6 +2,7 @@ package com.css.challenge;
 
 import com.css.challenge.Adapter.OrderAdapter;
 import com.css.challenge.Business.KitchenOrder;
+import com.css.challenge.Harness.SimpleHarness;
 import com.css.challenge.client.Action;
 import com.css.challenge.client.Client;
 import com.css.challenge.client.Order;
@@ -66,9 +67,15 @@ public class Main implements Runnable {
 
       List<KitchenOrder> orders = problem.getOrders().stream()
               .map(OrderAdapter::toDomain)
-              .collect(Collectors.toList());
+              .toList();
 
       LOGGER.info("Convert {} scaffold code orders to kitchen orders", orders.size());
+
+      SimpleHarness harness = new SimpleHarness(kitchen, rate, min, max);
+      LOGGER.info("Running simulation with rate={}ms and pickup between={}-{}", rate.toMillis(), min.toSeconds(), max.toSeconds());
+
+//      var harnessResults = harness.run();
+//      List<Action> actions = harnessResults.getActions();
 
       // ------ Execution harness logic goes here using rate, min and max ----
 
