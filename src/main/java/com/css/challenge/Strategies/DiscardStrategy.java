@@ -4,6 +4,7 @@ import com.css.challenge.Business.KitchenOrder;
 import com.css.challenge.Storage.StorageRepository;
 
 import javax.swing.text.html.Option;
+import java.time.Instant;
 import java.util.Optional;
 
 /**
@@ -11,7 +12,7 @@ import java.util.Optional;
  */
 public interface DiscardStrategy {
 
-    public Optional<KitchenOrder> selectDiscardCandidate(StorageRepository shelf);
+    Optional<KitchenOrder> selectDiscardCandidate(StorageRepository storage, Instant now);
 
     public String getName();
 }

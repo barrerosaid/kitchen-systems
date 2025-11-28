@@ -6,148 +6,139 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.time.Instant;
+import java.time.Duration;
 import java.util.*;
 
-/*
-    Holds room temperature food
- */
 public class ShelfStorage implements StorageRepository {
-    private static final int CAPACITY = 12;
-    private static final String NAME = "Shelf";
+
     private static final Logger LOGGER = LoggerFactory.getLogger(ShelfStorage.class);
 
+    private static final int CAPACITY = 12;
+    private static final String NAME = "shelf";
+
     private final List<KitchenOrder> orders = Collections.synchronizedList(new ArrayList<>());
+    private final Map<String, OrderItem> orderMap = Collections.synchronizedMap(new HashMap<>());
+    private final PriorityQueue<OrderItem> ordersByFreshnessQueue;
 
-    private PriorityQueue<OrderItem> ordersByFreshnessQueue;
-
-    private Map<String, OrderItem> orderMap = Collections.synchronizedMap(new HashMap<>());
-
-    /**
-     * Used as Object for mapping the freshness to a KitchenOrder
-     */
-    private static class OrderItem{
-        KitchenOrder order;
+    private static class OrderItem {
+        final KitchenOrder order;
         double cachedFreshness;
-        long lastOrderUpdateTime;
+        Instant lastUpdateTime;
 
-        OrderItem(KitchenOrder order){
+        OrderItem(KitchenOrder order, Instant now) {
             this.order = order;
             this.cachedFreshness = 1.0;
-            this.lastOrderUpdateTime = System.currentTimeMillis();
+            this.lastUpdateTime = now;
         }
 
-        double getCurrentFreshnessRatio(){
-            long now = System.currentTimeMillis();
-            long age = now - lastOrderUpdateTime;
-
-            // older than 100ms which is the cache time so we will need to re-upade
-            if(age > 100){
-                cachedFreshness = order.getFreshnessRatio(Instant.now());
-                lastOrderUpdateTime = now;
+        double getCurrentFreshnessRatio(Instant now) {
+            if (Duration.between(lastUpdateTime, now).toMillis() > 50) { // update if stale
+                cachedFreshness = order.getFreshnessRatio(now);
+                lastUpdateTime = now;
             }
-
+            LOGGER.debug("ShelfStorage: Calculated freshness for order {} = {}", order.getId(), cachedFreshness);
             return cachedFreshness;
-        }
-
-        @Override
-        public String toString(){
-            return String.format("OrderItem{id=%s, freshness=%.2f", order.getId(), getCurrentFreshnessRatio());
         }
     }
 
-    public ShelfStorage(){
-        ordersByFreshnessQueue = new PriorityQueue<>((a, b) -> Double.compare(a.getCurrentFreshnessRatio(), b.getCurrentFreshnessRatio()));
+    public ShelfStorage() {
+        ordersByFreshnessQueue = new PriorityQueue<>(Comparator.comparingDouble(item -> item.cachedFreshness));
     }
 
     @Override
-    public boolean hasSpace(){
+    public boolean hasSpace() {
         return orderMap.size() < CAPACITY;
     }
 
     @Override
-    public void add(KitchenOrder order){
-        if(!hasSpace()){
-            throw new IllegalStateException(
-                    String.format("%s is full as capacity is: %d", NAME, CAPACITY));
-        }
+    public void add(KitchenOrder order) {
+        LOGGER.warn("{} ADD id={} temp={} count={}/{}",
+                getName(),
+                order.getId(),
+                order.getTemperature(),
+                getCurrentCount(),
+                getCapacity());
 
-        OrderItem item = new OrderItem(order);
+        if (!hasSpace()) {
+            throw new IllegalStateException(NAME + " is full");
+        }
+        Instant now = Instant.now();
+        LOGGER.debug("ShelfStorage: Adding order {} at {}", order.getId(), now);
+        orders.add(order);
+        LOGGER.info("ShelfStorage Debug: Added order {} temp={} freshness={}",
+                order.getId(),
+                order.getTemperature(),
+                order.getFreshnessRatio(Instant.now()));
+        LOGGER.info("ShelfStorage Debug: Current shelf count={}/{}", orders.size(), CAPACITY);
+        OrderItem item = new OrderItem(order, now);
         orderMap.put(order.getId(), item);
         ordersByFreshnessQueue.offer(item);
-        //orders.add(order);
         order.setCurrentLocation(Location.SHELF);
-
-        LOGGER.debug("Added {} to shelf (count on shelf: {} / {})", order.getId(), orderMap.size(), CAPACITY);
     }
 
     @Override
-    public boolean remove(String orderId){
+    public boolean remove(String orderId) {
+        LOGGER.warn("{} REMOVE id={} count={}/{}",
+                getName(),
+                orderId,
+                getCurrentCount(),
+                getCapacity());
         OrderItem item = orderMap.remove(orderId);
-        if(item != null){
+        if (item != null) {
             ordersByFreshnessQueue.remove(item);
-            LOGGER.debug("Removed {} from shelf (count: {}/{})", orderId, orderMap.size(), CAPACITY);
+            orders.remove(item.order);
+            LOGGER.info("ShelfStorage Debug: Removed order {}. Current shelf count={}/{}", orderId, orders.size(), CAPACITY);
+            LOGGER.debug("ShelfStorage: Removed order {}", orderId);
             return true;
         }
         return false;
-        //return orders.removeIf(order -> order.getId().equals(orderId));
     }
 
     @Override
-    public Optional<KitchenOrder> findById(String orderId){
-        OrderItem item = orderMap.get(orderId);
-        if(item == null){
-            return Optional.empty();
-        }
+    public Optional<KitchenOrder> findById(String orderId) {
+        return Optional.ofNullable(orderMap.get(orderId)).map(item -> item.order);
+    }
 
-        return Optional.of(item.order);
+    public Optional<KitchenOrder> findLeastFreshOrder(Instant now) {
+        if (ordersByFreshnessQueue.isEmpty()) return Optional.empty();
 
-        //return orders.stream().filter(order -> order.getId().equals(orderId)).findFirst();
+        OrderItem top = ordersByFreshnessQueue.peek();
+        top.getCurrentFreshnessRatio(now);
+        LOGGER.debug("ShelfStorage: Least fresh order is {}", top.order.getId());
+
+        List<OrderItem> items = new ArrayList<>(ordersByFreshnessQueue);
+        ordersByFreshnessQueue.clear();
+        ordersByFreshnessQueue.addAll(items);
+
+        return Optional.of(top.order);
     }
 
     @Override
-    public List<KitchenOrder> getAllOrders(){
-        return Collections.unmodifiableList(
-                orderMap.values().stream()
-                        .map(e -> e.order)
-                        .toList()
-        );
-
-        //return Collections.unmodifiableList(new ArrayList<>(orders));
+    public List<KitchenOrder> getAllOrders() {
+        // Return a copy to avoid external modification
+        return Collections.unmodifiableList(new ArrayList<>(orders));
     }
 
     @Override
-    public int getCurrentCount(){
+    public int getCurrentCount() {
+        // Number of orders currently stored
         return orderMap.size();
     }
 
     @Override
-    public int getCapacity(){
+    public int getCapacity() {
+        // Max capacity constant
         return CAPACITY;
     }
 
     @Override
-    public String getName(){
+    public String getName() {
         return NAME;
     }
 
-    //Select item that is the least fresh in the queue
-    public Optional<KitchenOrder> findLeastFreshOrder(){
-        OrderItem worstItem = ordersByFreshnessQueue.peek();
-
-        if(worstItem == null){
-            return Optional.empty();
-        }
-
-        return Optional.of(worstItem.order);
-    }
-
-    // FIFO
-    public Optional<KitchenOrder> getOldestOrder(){
-        return orders.isEmpty() ? Optional.empty() : Optional.of(orders.getFirst());
-    }
-
     @Override
-    public String toString(){
-        return String.format("%s (%d/%d)", NAME, getCurrentCount(), CAPACITY);
+    public String getLocationName() {
+        return NAME; // Shelf's location is its name
     }
+
 }

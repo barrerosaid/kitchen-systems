@@ -34,4 +34,6 @@ public interface StorageRepository {
 
     //name of storage location
     String getName();
+
+    String getLocationName();
 }

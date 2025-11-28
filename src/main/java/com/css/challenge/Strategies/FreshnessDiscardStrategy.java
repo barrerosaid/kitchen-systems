@@ -9,33 +9,43 @@ import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
 
-public class FreshnessDiscardStrategy implements DiscardStrategy
-{
+public class FreshnessDiscardStrategy implements DiscardStrategy {
+
     private static final Logger LOGGER = LoggerFactory.getLogger(FreshnessDiscardStrategy.class);
-    private static final String strategyName = "Freshness";
 
-    // We are checking the selected storage on freshness
-    public Optional<KitchenOrder> selectDiscardCandidate(StorageRepository shelf){
-        Instant now = Instant.now();
-        List<KitchenOrder> allOrders = shelf.getAllOrders();
+    @Override
+    public Optional<KitchenOrder> selectDiscardCandidate(StorageRepository storage, Instant now) {
+        List<KitchenOrder> orders = storage.getAllOrders();
+        if (orders.isEmpty()) {
+            LOGGER.debug("FreshnessStrategy: No orders in storage {}", storage.getName());
+            return Optional.empty();
+        }
+/**/
+        KitchenOrder leastFresh = null;
+        double minFreshness = Double.MAX_VALUE;
 
-        // compare which is the freshest one from all the kitchen order
-        return allOrders.stream().min((o1, o2) ->{
-            double ratio1 = o1.getFreshnessRatio(now);
-            double ratio2 = o2.getFreshnessRatio(now);
-
-            int freshnessRatioCompare = Double.compare(ratio1, ratio2);
-            if(freshnessRatioCompare != 0){
-                return freshnessRatioCompare;
+        for (KitchenOrder order : orders) {
+            double freshness = order.getFreshnessRatio(now);
+            LOGGER.debug("FreshnessStrategy: Evaluating order {} in {} with freshness {:.4f}",
+                    order.getId(), storage.getName(), freshness);
+            if (freshness < minFreshness) {
+                minFreshness = freshness;
+                leastFresh = order;
             }
+        }
 
-            // if the same freshness ratio (both going to expire at the same rate) so compare price
-            return o1.getPrice().compareTo(o2.getPrice());
-        });
+        if (leastFresh != null) {
+            LOGGER.info("FreshnessStrategy: Selected order {} for discard from {} (freshness {:.4f})",
+                    leastFresh.getId(), storage.getName(), minFreshness);
+            return Optional.of(leastFresh);
+        } else {
+            LOGGER.debug("FreshnessStrategy: No candidate to discard in {}", storage.getName());
+            return Optional.empty();
+        }
     }
 
     @Override
-    public String getName(){
-        return strategyName;
+    public String getName() {
+        return "Freshness";
     }
 }

@@ -3,6 +3,11 @@ package com.css.challenge;
 import com.css.challenge.Adapter.OrderAdapter;
 import com.css.challenge.Business.KitchenOrder;
 import com.css.challenge.Harness.SimpleHarness;
+import com.css.challenge.Harness.SimpleHarnessResult;
+import com.css.challenge.Storage.CoolerStorage;
+import com.css.challenge.Storage.HeaterStorage;
+import com.css.challenge.Storage.ShelfStorage;
+import com.css.challenge.Strategies.FreshnessDiscardStrategy;
 import com.css.challenge.client.Action;
 import com.css.challenge.client.Client;
 import com.css.challenge.client.Order;
@@ -54,41 +59,69 @@ public class Main implements Runnable {
   @Override
   public void run() {
     try {
+      // --- Connect to API ---
       Client client = new Client(endpoint, auth);
       Problem problem = client.newProblem(name, seed);
 
       LOGGER.info("=====");
       LOGGER.info("Problem ID: {}", problem.getTestId());
-      LOGGER.info("Orders processing: {}", problem.getOrders().size());
+      LOGGER.info("Incoming Orders: {}", problem.getOrders().size());
       LOGGER.info("=====");
 
-      Kitchen kitchen = new Kitchen();
-      LOGGER.info("Kitchen created");
+      // --- Create storage repositories ---
+      HeaterStorage heaterStorage = new HeaterStorage();
+      CoolerStorage coolerStorage = new CoolerStorage();
+      ShelfStorage shelfStorage  = new ShelfStorage();
 
+      // --- Discard strategy ---
+      FreshnessDiscardStrategy discardStrategy = new FreshnessDiscardStrategy();
+
+      // --- Kitchen instance ---
+      Kitchen kitchen = new Kitchen(heaterStorage, coolerStorage, shelfStorage, discardStrategy);
+      LOGGER.info("Kitchen initialized");
+
+      // --- Convert problem orders → domain orders ---
+      Instant simulationNow = Instant.now(); // or problem.getStartTime() if available
       List<KitchenOrder> orders = problem.getOrders().stream()
-              .map(OrderAdapter::toDomain)
+              .map(o -> OrderAdapter.toDomain(o, simulationNow))
               .toList();
+      //KitchenOrder order = OrderAdapter.toDomain(clientOrder, simulationClock.now());
 
-      LOGGER.info("Convert {} scaffold code orders to kitchen orders", orders.size());
+      LOGGER.info("Converted {} scaffold orders to domain orders", orders.size());
 
-      SimpleHarness harness = new SimpleHarness(kitchen, rate, min, max);
-      LOGGER.info("Running simulation with rate={}ms and pickup between={}-{}", rate.toMillis(), min.toSeconds(), max.toSeconds());
+      // --- Harness ---
+      SimpleHarness harness =
+              new SimpleHarness(kitchen, rate, min, max);
 
-      var harnessResults = harness.run(orders);
-      List<Action> actions = harnessResults.getActions();
+      LOGGER.info(
+              "Starting simulation: rate={}ms, pickup={}-{} sec",
+              rate.toMillis(), min.toSeconds(), max.toSeconds()
+      );
 
-      // ------ Execution harness logic goes here using rate, min and max ----
-      // ----------------------------------------------------------------------
+      // Run the local simulation
+      SimpleHarnessResult result = harness.run(orders);
 
-      LOGGER.info("Submitting {} actions to server: ", actions.size());
-      String result = client.solveProblem(problem.getTestId(), rate, min, max, actions);
-      LOGGER.info("Server Result: {}", result);
+      List<Action> actions = result.getActions();
+      LOGGER.info("Simulation produced {} actions", actions.size());
+
+      // --- Submit actions to server ---
+      LOGGER.info("Submitting actions...");
+      String response = client.solveProblem(
+              problem.getTestId(),
+              rate,
+              min,
+              max,
+              actions
+      );
+
+      LOGGER.info("Server Response: {}", response);
 
     } catch (IOException e) {
       LOGGER.error("Simulation failed: {}", e.getMessage());
       System.exit(1);
     }
   }
+
 
   public static void main(String[] args) {
     new CommandLine(new Main()).execute(args);

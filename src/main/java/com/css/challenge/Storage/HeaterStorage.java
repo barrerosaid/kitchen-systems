@@ -10,7 +10,7 @@ import java.util.Optional;
 
 public class HeaterStorage implements StorageRepository {
     private static final int CAPACITY = 6;
-    private static final String NAME = "Heater";
+    private static final String NAME = "heater";
 
     private final List<KitchenOrder> orders = Collections.synchronizedList(new ArrayList<>());
 
@@ -57,6 +57,11 @@ public class HeaterStorage implements StorageRepository {
     @Override
     public String getName(){
         return NAME;
+    }
+
+    @Override
+    public String getLocationName() {
+        return NAME; // Heater, Cooler, Shelf, etc.
     }
 
     @Override
