@@ -38,7 +38,7 @@ public class SimpleHarness {
             kitchen.placeOrder(order, placeTime);
 
             // Schedule the pickup WITHOUT blocking placement
-            Duration pickupDelay = randomDuration(pickupMin, pickupMax);
+            Duration pickupDelay = randomDuration(pickupMin, pickupMax, order);
 
             ScheduledFuture<?> f = scheduler.schedule(() -> {
                 Instant pickupTime = Instant.now();
@@ -75,9 +75,10 @@ public class SimpleHarness {
         }
     }
 
-    private Duration randomDuration(Duration min, Duration max) {
+    private Duration randomDuration(Duration min, Duration max, KitchenOrder order) {
+        long freshnessMs = order.getFreshnessDuration().toMillis();
         long minMs = min.toMillis();
-        long maxMs = max.toMillis();
+        long maxMs = Math.min(max.toMillis(), freshnessMs - 100); // leave a small buffer
         long random = ThreadLocalRandom.current().nextLong(minMs, maxMs + 1);
         return Duration.ofMillis(random);
     }

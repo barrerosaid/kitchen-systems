@@ -50,8 +50,7 @@ public class ShelfStorage implements StorageRepository {
         return orderMap.size() < CAPACITY;
     }
 
-    @Override
-    public void add(KitchenOrder order) {
+    public void add(KitchenOrder order, Instant now) {
         LOGGER.warn("{} ADD id={} temp={} count={}/{}",
                 getName(),
                 order.getId(),
@@ -62,15 +61,9 @@ public class ShelfStorage implements StorageRepository {
         if (!hasSpace()) {
             throw new IllegalStateException(NAME + " is full");
         }
-        Instant now = Instant.now();
-        LOGGER.debug("ShelfStorage: Adding order {} at {}", order.getId(), now);
+
         orders.add(order);
-        LOGGER.info("ShelfStorage Debug: Added order {} temp={} freshness={}",
-                order.getId(),
-                order.getTemperature(),
-                order.getFreshnessRatio(Instant.now()));
-        LOGGER.info("ShelfStorage Debug: Current shelf count={}/{}", orders.size(), CAPACITY);
-        OrderItem item = new OrderItem(order, now);
+        OrderItem item = new OrderItem(order, now);  // <-- use now from Kitchen
         orderMap.put(order.getId(), item);
         ordersByFreshnessQueue.offer(item);
         order.setCurrentLocation(Location.SHELF);
@@ -134,6 +127,11 @@ public class ShelfStorage implements StorageRepository {
     @Override
     public String getName() {
         return NAME;
+    }
+
+    @Override
+    public Location getLocation() {
+        return Location.SHELF;
     }
 
     @Override

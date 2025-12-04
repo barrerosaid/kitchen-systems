@@ -1,7 +1,9 @@
 package com.css.challenge.Storage;
 
 import com.css.challenge.Business.KitchenOrder;
+import com.css.challenge.Business.Location;
 
+import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
 
@@ -15,7 +17,7 @@ public interface StorageRepository {
     public boolean hasSpace();
 
     //Add order to storage
-    public void add(KitchenOrder order);
+    public void add(KitchenOrder order, Instant now);
 
     //remove order by ID
     public boolean remove(String orderId);
@@ -36,4 +38,6 @@ public interface StorageRepository {
     String getName();
 
     String getLocationName();
+
+    Location getLocation();
 }

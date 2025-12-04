@@ -86,95 +86,53 @@ public class Kitchen {
             LOGGER.info("Kitchen: Placing order {} at {}", order.getId(), now);
             order.setCreatedAt(now);
 
-            LOGGER.info("Kitchen Status: Cooler={}/{} Heater={}/{} Shelf={}/{}",
-                    coolerStorage.getCurrentCount(), coolerStorage.getCapacity(),
-                    heaterStorage.getCurrentCount(), heaterStorage.getCapacity(),
-                    shelfStorage.getCurrentCount(), shelfStorage.getCapacity());
-
             StorageRepository ideal = getStorage(order.getTemperature());
-            LOGGER.warn("PLACE_START id={} temp={} ideal={} time={}",
-                    order.getId(),
-                    order.getTemperature(),
-                    ideal.getName(),
-                    now);
 
-            LOGGER.debug("Kitchen: Ideal storage for order {} is {}", order.getId(), ideal.getName());
-            LOGGER.info("Kitchen Debug: Placing order {} temp={} ideal storage={} shelf={}/{}",
-                    order.getId(),
-                    order.getTemperature(),
-                    ideal.getName(),
-                    shelfStorage.getCurrentCount(),
-                    shelfStorage.getCapacity());
-
+            // --------------------------------------------------
             // 1) Try ideal storage
+            // --------------------------------------------------
             if (ideal.hasSpace()) {
-                ideal.add(order);
+                ideal.add(order, now);
+                order.setCurrentLocation(ideal.getLocation());
                 recordAction(now, order, Action.PLACE, ideal.getLocationName());
                 totalOrdersPlaced++;
-                LOGGER.info("Kitchen: Order {} placed in ideal storage {}", order.getId(), ideal.getName());
                 return;
-            } else {
-                LOGGER.debug("Kitchen: Ideal storage {} is full for order {}", ideal.getName(), order.getId());
             }
 
-            // 2) Try shelf
+            // --------------------------------------------------
+            // 2) Try shelf if ideal is full
+            // --------------------------------------------------
             if (shelfStorage.hasSpace()) {
-                shelfStorage.add(order);
+                shelfStorage.add(order, now);
+                order.setCurrentLocation(shelfStorage.getLocation());
                 recordAction(now, order, Action.PLACE, shelfStorage.getLocationName());
                 totalOrdersPlaced++;
-                LOGGER.info("Kitchen: Order {} placed in shelf storage", order.getId());
-                return;
-            } else {
-                LOGGER.debug("Kitchen: Shelf storage is full for order {}", order.getId());
-            }
-
-            // 3) Discard from ideal using strategy
-            Optional<KitchenOrder> discardInIdeal = discardStrategy.selectDiscardCandidate(ideal, now);
-            if (discardInIdeal.isPresent()) {
-                LOGGER.debug("Kitchen: Discard strategy selected order {} in ideal storage", discardInIdeal.get().getId());
-                discardOrder(discardInIdeal.get(), now);
-                ideal.add(order);
-                recordAction(now, order, Action.PLACE, ideal.getLocationName());
-                totalOrdersPlaced++;
-                LOGGER.info("Kitchen: Order {} placed in ideal storage after discarding", order.getId());
                 return;
             }
 
-            // -----------------------------
-            // 3.5) Move eligible orders from shelf to ideal storage
-            // -----------------------------
-            List<KitchenOrder> shelfOrders = new ArrayList<>(shelfStorage.getAllOrders()); // copy to avoid concurrent modification
-            for (KitchenOrder shelfOrder : shelfOrders) {
-                StorageRepository targetStorage = getStorage(shelfOrder.getTemperature());
-                if (targetStorage.hasSpace()) {
-                    shelfStorage.remove(shelfOrder.getId());
-                    targetStorage.add(shelfOrder);
-                    recordAction(now, shelfOrder, Action.MOVE, targetStorage.getLocationName());
-                    LOGGER.info("Moved order {} from shelf to {}", shelfOrder.getId(), targetStorage.getName());
-                }
-            }
-
-            // 4) Discard from shelf if necessary
-            if (!shelfStorage.hasSpace()) {
+            // --------------------------------------------------
+            // 3) Shelf full → attempt to move orders to ideal first
+            // --------------------------------------------------
+            if (!moveOrderFromShelfIfPossible(now)) {
+                // Could not move anything → discard least fresh shelf order
                 Optional<KitchenOrder> discardShelf = discardStrategy.selectDiscardCandidate(shelfStorage, now);
-                if (discardShelf.isPresent()) {
-                    LOGGER.debug("Kitchen: Discard strategy selected order {} in shelf storage", discardShelf.get().getId());
-                    discardOrder(discardShelf.get(), now);
-                } else {
-                    LOGGER.debug("Kitchen: No candidate to discard in shelf storage");
-                }
+                discardShelf.ifPresent(o -> discardOrder(o, now));
             }
 
-            // 5) Try to place on shelf after moves/discards
+            // --------------------------------------------------
+            // 4) Place on shelf after possible move/discard
+            // --------------------------------------------------
             if (shelfStorage.hasSpace()) {
-                shelfStorage.add(order);
+                shelfStorage.add(order, now);
+                order.setCurrentLocation(shelfStorage.getLocation());
                 recordAction(now, order, Action.PLACE, shelfStorage.getLocationName());
                 totalOrdersPlaced++;
-                LOGGER.info("Kitchen: Order {} placed in shelf storage after move/discard attempt", order.getId());
                 return;
             }
 
-            // 6) Nothing worked — drop on floor
+            // --------------------------------------------------
+            // 5) Nothing worked — drop on floor
+            // --------------------------------------------------
             LOGGER.warn("Kitchen: NO SPACE for order {} — could not be placed", order.getId());
 
         } finally {
@@ -182,18 +140,37 @@ public class Kitchen {
         }
     }
 
+    // ------------------------------------------------------------
+    // MOVE ORDER FROM SHELF IF POSSIBLE
+    // ------------------------------------------------------------
+    private boolean moveOrderFromShelfIfPossible(Instant now) {
+        List<KitchenOrder> shelfOrders = new ArrayList<>(shelfStorage.getAllOrders());
 
+        for (KitchenOrder o : shelfOrders) {
+            if (o.getFreshnessRatio(now) <= 0) continue; // skip expired
+            StorageRepository ideal = getStorage(o.getTemperature());
+            // Only move to ideal storage if it has space
+            if (ideal.hasSpace()) {
+                shelfStorage.remove(o.getId());
+                ideal.add(o, now);
+                o.setCurrentLocation(ideal.getLocation());
+                recordAction(now, o, Action.MOVE, ideal.getLocationName());
+                return true; // moved one order to make room
+            }
+        }
+
+        // Nothing could be moved
+        return false;
+    }
 
     // ------------------------------------------------------------
     // PICKUP ORDER
     // ------------------------------------------------------------
-
     public Optional<KitchenOrder> pickupOrder(String id, Instant now) {
         lock.writeLock().lock();
         try {
-
+            // Already discarded?
             if (discardedOrderIds.contains(id)) {
-                LOGGER.debug("Pickup skipped: {} already discarded", id);
                 return Optional.empty();
             }
 
@@ -205,16 +182,21 @@ public class Kitchen {
 
             KitchenOrder order = found.get();
 
-            // Expired?
+            // Expired? Discard it first
             if (order.hasExpired(now)) {
-                LOGGER.warn("Pickup failed: {} expired", id);
                 discardOrder(order, now);
                 return Optional.empty();
             }
 
+            // Remove from storage
             StorageRepository storage = getStorage(order.getCurrentLocation());
-            storage.remove(order.getId());
+            boolean removed = storage.remove(order.getId());
+            if (!removed) {
+                LOGGER.warn("Pickup failed: order {} not found in expected storage {}", id, storage.getName());
+                return Optional.empty();
+            }
 
+            // Record pickup action
             recordAction(now, order, Action.PICKUP, storage.getLocationName());
             totalOrdersPickedUp++;
 
@@ -229,13 +211,7 @@ public class Kitchen {
     // ------------------------------------------------------------
     // DISCARD ORDER
     // ------------------------------------------------------------
-
     private void discardOrder(KitchenOrder order, Instant now) {
-        LOGGER.error("DISCARD id={} from {} at {}",
-                order.getId(),
-                order.getCurrentLocation(),
-                now);
-
         StorageRepository storage = getStorage(order.getCurrentLocation());
         storage.remove(order.getId());
         discardedOrderIds.add(order.getId());
@@ -249,7 +225,6 @@ public class Kitchen {
     // ------------------------------------------------------------
     // UTIL HELPERS
     // ------------------------------------------------------------
-
     private Optional<KitchenOrder> findOrder(String id) {
         return heaterStorage.findById(id)
                 .or(() -> coolerStorage.findById(id))
@@ -257,9 +232,8 @@ public class Kitchen {
     }
 
     // ------------------------------------------------------------
-    // METRICS (OPTIONAL)
+    // METRICS
     // ------------------------------------------------------------
-
     public int getTotalOrdersPlaced() { return totalOrdersPlaced; }
     public int getTotalOrdersPickedUp() { return totalOrdersPickedUp; }
     public int getTotalOrdersDiscardedExpired() { return totalOrdersDiscardedExpired; }

@@ -3,6 +3,7 @@ package com.css.challenge.Storage;
 import com.css.challenge.Business.KitchenOrder;
 import com.css.challenge.Business.Location;
 
+import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
@@ -20,7 +21,7 @@ public class CoolerStorage implements StorageRepository{
     }
 
     @Override
-    public void add(KitchenOrder order){
+    public void add(KitchenOrder order, Instant now){
         if(!hasSpace()){
             throw new IllegalStateException(
                     String.format("%s is full as capacity is: %d", NAME, CAPACITY));
@@ -62,6 +63,11 @@ public class CoolerStorage implements StorageRepository{
     @Override
     public String getLocationName() {
         return NAME; // Heater, Cooler, Shelf, etc.
+    }
+
+    @Override
+    public Location getLocation() {
+        return Location.COOLER;
     }
 
     @Override
