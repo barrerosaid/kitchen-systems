@@ -54,7 +54,7 @@ public class Main implements Runnable {
   Duration min = Duration.ofSeconds(4);
 
   @Option(names = "--max", description = "Maximum pickup time")
-  Duration max = Duration.ofSeconds(10);
+  Duration max = Duration.ofSeconds(20);
 
   @Override
   public void run() {

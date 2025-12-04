@@ -25,43 +25,54 @@ public class SimpleHarness {
     }
 
     public SimpleHarnessResult run(List<KitchenOrder> orders) {
-
         long startTime = System.currentTimeMillis();
 
         ScheduledExecutorService scheduler = Executors.newScheduledThreadPool(4);
         List<ScheduledFuture<?>> scheduledPickups = new ArrayList<>();
 
-        // Placement loop MUST NOT block
+        // Cumulative placement time to adjust pickup limits
+        long cumulativePlacementMs = 0;
+
         for (KitchenOrder order : orders) {
 
             Instant placeTime = Instant.now();
             kitchen.placeOrder(order, placeTime);
 
-            // Schedule the pickup WITHOUT blocking placement
-            Duration pickupDelay = randomDuration(pickupMin, pickupMax, order);
+            // Calculate maximum safe pickup delay
+            Duration ttl = order.getFreshnessDuration();
+            long maxPickupMs = Math.max(1, ttl.toMillis() - cumulativePlacementMs - 50); // 50ms buffer
+            long minPickupMs = pickupMin.toMillis();
+            long actualMaxMs = Math.min(maxPickupMs, pickupMax.toMillis());
+
+            if (actualMaxMs < minPickupMs) {
+                // Order would expire too fast; pick up immediately after placement
+                actualMaxMs = minPickupMs;
+            }
+
+            long delayMs = ThreadLocalRandom.current().nextLong(minPickupMs, actualMaxMs + 1);
 
             ScheduledFuture<?> f = scheduler.schedule(() -> {
                 Instant pickupTime = Instant.now();
                 kitchen.pickupOrder(order.getId(), pickupTime);
-            }, pickupDelay.toMillis(), TimeUnit.MILLISECONDS);
+            }, delayMs, TimeUnit.MILLISECONDS);
 
             scheduledPickups.add(f);
 
-            // Wait ONLY for placement rate, not for pickup
+            // Wait only for placement rate, not pickup
             sleep(placementRate);
+            cumulativePlacementMs += placementRate.toMillis();
         }
 
-        // Wait for all pickup tasks to finish
+        // Wait for all pickups
         for (ScheduledFuture<?> f : scheduledPickups) {
             try {
-                f.get(); // blocks until that pickup task finishes
+                f.get();
             } catch (Exception ignored) {}
         }
 
         scheduler.shutdown();
 
         long endTime = System.currentTimeMillis();
-
         List<Action> actions = kitchen.getActions();
 
         return new SimpleHarnessResult(kitchen, actions, startTime, endTime);
