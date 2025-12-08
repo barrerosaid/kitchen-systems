@@ -44,8 +44,21 @@ Rationale:
 By discarding the least fresh items first, fresher orders are preserved, reducing the risk of discarding orders that could still be served. This format allows for customers are more likely to receive fresher items, improving overall satisfaction.
 This strategy is straightforward to implement and ensures consistent behavior under the different storage options and also gives a pattern to create new strategies for discarding.
 
-# Design Overview
+# Architecture Overview
+└───src
+    └───main
+        └───java
+            └───com
+                └───css
+                    └───challenge
+                        ├───Adapter
+                        ├───Business
+                        ├───client
+                        ├───Harness
+                        ├───Storage
+                        └───Strategies
 
+# Design Overview
 This kitchen system is designed with modularity and maintainability in mind. The Strategy pattern is employed for the discard logic, enabling different algorithms for selecting which orders to discard without modifying the core Kitchen implementation. 
 
 Each storage type (heater, cooler, and shelf storage) is encapsulated behind a repository-style abstraction, providing a unified interface for adding, removing, and finding/querying orders. 
@@ -55,3 +68,6 @@ Thread safety is ensured using a Read-Write Lock, allowing concurrent placements
 One of the primary challenges in this implementation was coordinating timing across multiple intervals. Kitchen orders have varying freshness durations, placement rates, and pickup delays, which can interact in complex ways. 
 
 My challenge was ensuring that all timestamps remain monotonic, preventing premature pickups or late discards, and maintaining alignment with the discard strategy required careful design and iterative tuning of the simulation logic.
+
+# Sample Output
+This simulation output can be seen in sample_output.txt for 4-30ms for 500ms
