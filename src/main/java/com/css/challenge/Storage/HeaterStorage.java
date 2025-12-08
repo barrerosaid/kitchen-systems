@@ -9,6 +9,9 @@ import java.util.Collections;
 import java.util.List;
 import java.util.Optional;
 
+/**
+ * StorageRepository representation for Heater storage and warm foods
+ */
 public class HeaterStorage implements StorageRepository {
     private static final int CAPACITY = 6;
     private static final String NAME = "heater";

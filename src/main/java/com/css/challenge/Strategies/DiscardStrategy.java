@@ -8,7 +8,7 @@ import java.time.Instant;
 import java.util.Optional;
 
 /**
- * Select a way to discard orders
+ * Interface: Selects a way to discard orders
  */
 public interface DiscardStrategy {
 

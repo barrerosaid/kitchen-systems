@@ -1,5 +1,8 @@
 package com.css.challenge.Business;
 
+/**
+ * Enum for hot, cold and room temperature
+ */
 public enum Temperature {
     HOT("hot"),
     COLD("cold"),

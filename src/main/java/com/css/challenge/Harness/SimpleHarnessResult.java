@@ -5,6 +5,10 @@ import com.css.challenge.client.Action;
 
 import java.util.List;
 
+/**
+ * This class represents results from the harness using the Kitchen, the actions from the kitchen
+ * and start and end time.
+ */
 public class SimpleHarnessResult {
     private final Kitchen kitchen;
     private final List<Action> actions;

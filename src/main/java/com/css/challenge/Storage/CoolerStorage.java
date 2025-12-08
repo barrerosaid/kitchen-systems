@@ -9,6 +9,9 @@ import java.util.Collections;
 import java.util.List;
 import java.util.Optional;
 
+/**
+ * StorageRepository representation for Coolers and colder foods.
+ */
 public class CoolerStorage implements StorageRepository{
     private static final int CAPACITY = 6;
     private static final String NAME = "cooler";
@@ -62,7 +65,7 @@ public class CoolerStorage implements StorageRepository{
 
     @Override
     public String getLocationName() {
-        return NAME; // Heater, Cooler, Shelf, etc.
+        return NAME;
     }
 
     @Override

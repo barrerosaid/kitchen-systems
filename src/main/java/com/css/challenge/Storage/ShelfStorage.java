@@ -6,9 +6,11 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.time.Instant;
-import java.time.Duration;
 import java.util.*;
 
+/**
+ *
+ */
 public class ShelfStorage implements StorageRepository {
 
     private static final Logger LOGGER = LoggerFactory.getLogger(ShelfStorage.class);
@@ -31,14 +33,6 @@ public class ShelfStorage implements StorageRepository {
             this.lastUpdateTime = now;
         }
 
-        double getCurrentFreshnessRatio(Instant now) {
-            if (Duration.between(lastUpdateTime, now).toMillis() > 50) { // update if stale
-                cachedFreshness = order.getFreshnessRatio(now);
-                lastUpdateTime = now;
-            }
-            LOGGER.debug("ShelfStorage: Calculated freshness for order {} = {}", order.getId(), cachedFreshness);
-            return cachedFreshness;
-        }
     }
 
     public ShelfStorage() {
@@ -92,23 +86,9 @@ public class ShelfStorage implements StorageRepository {
         return Optional.ofNullable(orderMap.get(orderId)).map(item -> item.order);
     }
 
-    public Optional<KitchenOrder> findLeastFreshOrder(Instant now) {
-        if (ordersByFreshnessQueue.isEmpty()) return Optional.empty();
-
-        OrderItem top = ordersByFreshnessQueue.peek();
-        top.getCurrentFreshnessRatio(now);
-        LOGGER.debug("ShelfStorage: Least fresh order is {}", top.order.getId());
-
-        List<OrderItem> items = new ArrayList<>(ordersByFreshnessQueue);
-        ordersByFreshnessQueue.clear();
-        ordersByFreshnessQueue.addAll(items);
-
-        return Optional.of(top.order);
-    }
 
     @Override
     public List<KitchenOrder> getAllOrders() {
-        // Return a copy to avoid external modification
         return Collections.unmodifiableList(new ArrayList<>(orders));
     }
 
@@ -136,7 +116,7 @@ public class ShelfStorage implements StorageRepository {
 
     @Override
     public String getLocationName() {
-        return NAME; // Shelf's location is its name
+        return NAME;
     }
 
 }

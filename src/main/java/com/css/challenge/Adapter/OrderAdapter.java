@@ -8,6 +8,11 @@ import java.math.BigDecimal;
 import java.time.Duration;
 import java.time.Instant;
 
+/**
+ *  OrderAdapter is responsible for converting external client-facing
+ *  objects (received from the simulation harness or remote client)
+ *  into internal KitchenOrder domain models used by the kitchen logic.
+ */
 public class OrderAdapter {
 
     /**
@@ -26,6 +31,12 @@ public class OrderAdapter {
                 .build();
     }
 
+    /**
+     * Safely parses temperature strings (hot/cold/room).
+     *
+     * @param raw the raw temperature string from the client order
+     * @return the parsed Temperature, or ROOM if unknown
+     */
     private static Temperature parseTempSafe(String raw) {
         if (raw == null) return Temperature.ROOM; // safest fallback
 
@@ -36,8 +47,6 @@ public class OrderAdapter {
             case "cold" -> Temperature.COLD;
             case "room" -> Temperature.ROOM;
             default -> {
-                // LOG IT because this is your true smoking gun
-                System.err.println("WARN: Unknown temperature '" + raw + "', defaulting to ROOM");
                 yield Temperature.ROOM;
             }
         };

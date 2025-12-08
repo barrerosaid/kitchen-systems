@@ -22,9 +22,7 @@ public class KitchenOrder {
         this.freshnessDuration = builder.freshnessDuration;
     }
 
-    // ---------------------------
     // Builder
-    // ---------------------------
     public static Builder builder() {
         return new Builder();
     }
@@ -51,9 +49,9 @@ public class KitchenOrder {
         }
     }
 
-    // ---------------------------
-    // Getters
-    // ---------------------------
+    /**
+     * Getters for KitchenOrder
+     */
     public String getId() { return id; }
     public String getName() { return name; }
     public Temperature getTemperature() { return temperature; }
@@ -66,15 +64,20 @@ public class KitchenOrder {
         this.createdAt = createdAt;
     }
 
-    // ---------------------------
-    // TTL & freshness
-    // ---------------------------
+    /**
+     * TTL & freshness
+     */
     public double getFreshnessRatio(Instant now) {
         long age = java.time.Duration.between(createdAt, now).toMillis();
         double ratio = Math.max(0, 1.0 - ((double) age / freshnessDuration.toMillis()));
         return ratio;
     }
 
+    /**
+     * Check if the order has expired
+     * @param now
+     * @return boolean
+     */
     public boolean hasExpired(Instant now) {
         return now.isAfter(createdAt.plus(freshnessDuration));
     }

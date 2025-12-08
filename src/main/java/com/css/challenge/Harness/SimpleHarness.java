@@ -10,6 +10,15 @@ import java.util.List;
 import java.util.ArrayList;
 import java.util.concurrent.*;
 
+/**
+ * A simple harness to simulate order placement and pickup in a Kitchen.
+ * This class allows testing the kitchen logic under a controlled scenario,
+ * to compare with the challenge server. It does the following:
+ *   - Placing orders with a fixed placement rate between orders
+ *   - Scheduling pickups with a random delay between a minimum and maximum window
+ *   - Maintaining monotonic timestamps for all actions
+ * This harness is for simulation.
+ */
 public class SimpleHarness {
 
     private final Kitchen kitchen;
@@ -24,6 +33,12 @@ public class SimpleHarness {
         this.pickupMax = pickupMax;
     }
 
+    /**
+    * Simulates running the kitchen with the given list of orders.
+    * Orders are placed sequentially, each separated by placement rate.
+    * Pickups occur after a random delay between pickupMin and pickupMax,
+    * ensuring actions are monotonic in time.
+    */
     public SimpleHarnessResult run(List<KitchenOrder> orders) {
         long startTime = System.currentTimeMillis();
 
@@ -78,19 +93,15 @@ public class SimpleHarness {
         return new SimpleHarnessResult(kitchen, actions, startTime, endTime);
     }
 
+    /**
+     * Function for threads waiting
+     * @param duration as the placementRate
+     */
     private void sleep(Duration duration) {
         try {
             Thread.sleep(duration.toMillis());
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
         }
-    }
-
-    private Duration randomDuration(Duration min, Duration max, KitchenOrder order) {
-        long freshnessMs = order.getFreshnessDuration().toMillis();
-        long minMs = min.toMillis();
-        long maxMs = Math.min(max.toMillis(), freshnessMs - 100); // leave a small buffer
-        long random = ThreadLocalRandom.current().nextLong(minMs, maxMs + 1);
-        return Duration.ofMillis(random);
     }
 }

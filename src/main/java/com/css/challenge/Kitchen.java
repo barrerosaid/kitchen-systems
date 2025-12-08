@@ -14,6 +14,17 @@ import java.util.*;
 import java.util.concurrent.locks.ReadWriteLock;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
 
+/**
+ * Represents a Kitchen which manages orders, storage, pickups, and discarding orders
+ *
+ * The kitchen class handles:
+ * - Places orders in the correct storage based on temperature.
+ * - Discarding the least fresh orders when storage is full.
+ * - Handling order pickups while enforcing that the food is still fresh otherwise use DiscardFreshnessStrategy.
+ * - Records the actions for (place, pickup, move, discard) for simulation
+ *
+ * Thread safety is using ReadWriteLocks
+ */
 public class Kitchen {
 
     private static final Logger LOGGER = LoggerFactory.getLogger(Kitchen.class);
@@ -43,10 +54,9 @@ public class Kitchen {
         this.discardStrategy = discardStrategy;
     }
 
-    // ------------------------------------------------------------
-    // STORAGE RESOLUTION
-    // ------------------------------------------------------------
-
+    /**
+    * Given a temperature tell which storage repository to use
+    */
     private StorageRepository getStorage(Temperature temp) {
         return switch (temp) {
             case HOT -> heaterStorage;
@@ -55,6 +65,9 @@ public class Kitchen {
         };
     }
 
+    /**
+     * Retrieve the storage type based on location
+     */
     private StorageRepository getStorage(Location loc) {
         return switch (loc) {
             case HEATER -> heaterStorage;
@@ -63,23 +76,25 @@ public class Kitchen {
         };
     }
 
-    // ------------------------------------------------------------
-    // ACTION RECORDING
-    // ------------------------------------------------------------
-
+    /**
+    * Record actions for the order and action "move", "discard" and target of where it should go
+    */
     private void recordAction(Instant ts, KitchenOrder order, String action, String target) {
         Action a = new Action(ts, order.getId(), action, target);
         actionLog.add(a);
         LOGGER.info("ACTION {}", a);
     }
 
+    /**
+     * Retrieve all actions the kitchen is doing
+     */
     public List<Action> getActions() {
         return List.copyOf(actionLog);
     }
 
-    // ------------------------------------------------------------
-    // PLACE ORDER
-    // ------------------------------------------------------------
+    /**
+    * Given a kitchen order place the order with the given steps
+    */
     public void placeOrder(KitchenOrder order, Instant now) {
         lock.writeLock().lock();
         try {
@@ -88,9 +103,7 @@ public class Kitchen {
 
             StorageRepository ideal = getStorage(order.getTemperature());
 
-            // --------------------------------------------------
             // 1) Try ideal storage
-            // --------------------------------------------------
             if (ideal.hasSpace()) {
                 ideal.add(order, now);
                 order.setCurrentLocation(ideal.getLocation());
@@ -99,9 +112,7 @@ public class Kitchen {
                 return;
             }
 
-            // --------------------------------------------------
             // 2) Try shelf if ideal is full
-            // --------------------------------------------------
             if (shelfStorage.hasSpace()) {
                 shelfStorage.add(order, now);
                 order.setCurrentLocation(shelfStorage.getLocation());
@@ -110,18 +121,14 @@ public class Kitchen {
                 return;
             }
 
-            // --------------------------------------------------
             // 3) Shelf full → attempt to move orders to ideal first
-            // --------------------------------------------------
             if (!moveOrderFromShelfIfPossible(now)) {
                 // Could not move anything → discard least fresh shelf order
                 Optional<KitchenOrder> discardShelf = discardStrategy.selectDiscardCandidate(shelfStorage, now);
                 discardShelf.ifPresent(o -> discardOrder(o, now));
             }
 
-            // --------------------------------------------------
             // 4) Place on shelf after possible move/discard
-            // --------------------------------------------------
             if (shelfStorage.hasSpace()) {
                 shelfStorage.add(order, now);
                 order.setCurrentLocation(shelfStorage.getLocation());
@@ -130,9 +137,7 @@ public class Kitchen {
                 return;
             }
 
-            // --------------------------------------------------
             // 5) Nothing worked — drop on floor
-            // --------------------------------------------------
             LOGGER.warn("Kitchen: NO SPACE for order {} — could not be placed", order.getId());
 
         } finally {
@@ -140,9 +145,10 @@ public class Kitchen {
         }
     }
 
-    // ------------------------------------------------------------
-    // MOVE ORDER FROM SHELF IF POSSIBLE
-    // ------------------------------------------------------------
+
+    /**
+     * Move the order if the storage repository has room and return boolean if successful
+     */
     private boolean moveOrderFromShelfIfPossible(Instant now) {
         List<KitchenOrder> shelfOrders = new ArrayList<>(shelfStorage.getAllOrders());
 
@@ -163,13 +169,13 @@ public class Kitchen {
         return false;
     }
 
-    // ------------------------------------------------------------
-    // PICKUP ORDER
-    // ------------------------------------------------------------
+
+    /**
+     * Pick up an order given an ide and check all storage repositories
+     */
     public Optional<KitchenOrder> pickupOrder(String id, Instant now) {
         lock.writeLock().lock();
         try {
-            // Already discarded?
             if (discardedOrderIds.contains(id)) {
                 return Optional.empty();
             }
@@ -208,9 +214,9 @@ public class Kitchen {
         }
     }
 
-    // ------------------------------------------------------------
-    // DISCARD ORDER
-    // ------------------------------------------------------------
+    /**
+     * Remove KitchenOrder and discard
+     */
     private void discardOrder(KitchenOrder order, Instant now) {
         StorageRepository storage = getStorage(order.getCurrentLocation());
         storage.remove(order.getId());
@@ -222,18 +228,16 @@ public class Kitchen {
         LOGGER.info("Discarded {} via strategy {}", order.getId(), discardStrategy.getName());
     }
 
-    // ------------------------------------------------------------
-    // UTIL HELPERS
-    // ------------------------------------------------------------
+    /**
+     * Find an order given an id and search in storage classes.
+     */
     private Optional<KitchenOrder> findOrder(String id) {
         return heaterStorage.findById(id)
                 .or(() -> coolerStorage.findById(id))
                 .or(() -> shelfStorage.findById(id));
     }
 
-    // ------------------------------------------------------------
     // METRICS
-    // ------------------------------------------------------------
     public int getTotalOrdersPlaced() { return totalOrdersPlaced; }
     public int getTotalOrdersPickedUp() { return totalOrdersPickedUp; }
     public int getTotalOrdersDiscardedExpired() { return totalOrdersDiscardedExpired; }

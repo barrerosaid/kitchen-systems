@@ -1,19 +1,17 @@
 package com.css.challenge.Business;
 
+/**
+ * Location enum for heater, cooler, and shelf
+ */
 public enum Location {
     HEATER("heater"),
     COOLER("cooler"),
-     SHELF("shelf");
+    SHELF("shelf");
 
     private final String value;
 
     Location(String value) {
         this.value = value;
-    }
-
-    // Get String representation of Enum
-    public String getValue() {
-        return value;
     }
 
     public static Location fromString(String value){

@@ -10,14 +10,11 @@ import com.css.challenge.Storage.ShelfStorage;
 import com.css.challenge.Strategies.FreshnessDiscardStrategy;
 import com.css.challenge.client.Action;
 import com.css.challenge.client.Client;
-import com.css.challenge.client.Order;
 import com.css.challenge.client.Problem;
 import java.io.IOException;
 import java.time.Duration;
 import java.time.Instant;
-import java.util.ArrayList;
 import java.util.List;
-import java.util.stream.Collectors;
 
 import org.apache.log4j.Level;
 import org.slf4j.Logger;
@@ -81,11 +78,10 @@ public class Main implements Runnable {
       LOGGER.info("Kitchen initialized");
 
       // --- Convert problem orders → domain orders ---
-      Instant simulationNow = Instant.now(); // or problem.getStartTime() if available
+      Instant simulationNow = Instant.now();
       List<KitchenOrder> orders = problem.getOrders().stream()
               .map(o -> OrderAdapter.toDomain(o, simulationNow))
               .toList();
-      //KitchenOrder order = OrderAdapter.toDomain(clientOrder, simulationClock.now());
 
       LOGGER.info("Converted {} scaffold orders to domain orders", orders.size());
 
@@ -121,7 +117,6 @@ public class Main implements Runnable {
       System.exit(1);
     }
   }
-
 
   public static void main(String[] args) {
     new CommandLine(new Main()).execute(args);

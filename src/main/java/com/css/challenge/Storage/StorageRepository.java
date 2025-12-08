@@ -7,9 +7,10 @@ import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
 
-/*
-    This StorageRepository interface is used for all storage locations
-    Will define storage capacity, remove and add orders, look up orders by id
+/**
+ * This StorageRepository interface is used for all storage locations
+ * Will define storage capacity, remove and add orders, look up orders by id
+ *
  */
 public interface StorageRepository {
 
